@@ -1,0 +1,32 @@
+import { test, expect } from "@playwright/test";
+import { URL } from "./config";
+
+test.beforeEach(async ({ page }) => {
+  await page.goto(URL);
+  await page.waitForFunction(() => !!window.keyhive);
+});
+
+test.describe("Document", async () => {
+  test("constructor", async ({ page }) => {
+    const out = await page.evaluate(async () => {
+      const { Keyhive, Signer, ChangeId, CiphertextStore } = window.keyhive;
+
+      const store = CiphertextStore.newInMemory();
+      const kh = await Keyhive.init(
+        await Signer.generate(),
+        store,
+        console.log
+      );
+      const changeId = new ChangeId(new Uint8Array([1, 2, 3]));
+
+      const g = await kh.generateGroup([])
+      const doc = await kh.generateDocument([g.toPeer()], changeId, [])
+      const docId = doc.id
+
+      return { doc, docId };
+    });
+
+    expect(out.doc).toBeDefined();
+    expect(out.docId).toBeDefined();
+  });
+});

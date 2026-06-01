@@ -1,0 +1,125 @@
+[package]
+
+name = "keyhive_core"
+version = "0.3.0"
+description = "Core Keyhive types and functions"
+
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+
+# Keyhive
+beekem = { version = "0.1.0", path = "../beekem" }
+keyhive_crypto = { version = "0.1.0", path = "../keyhive_crypto" }
+
+# Docs
+aquamarine = { version = "0.6", optional = true }
+
+# Encoding
+bincode = { workspace = true }
+serde = { workspace = true }
+
+# Crypto
+blake3 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+ed25519-dalek = { workspace = true }
+rand = { workspace = true }
+signature = { workspace = true }
+x25519-dalek = { workspace = true }
+
+# Error Handling
+thiserror = { workspace = true }
+
+# Utilities
+derivative = "2.2"
+derive_more = { workspace = true }
+derive-where = "1.2"
+dupe = { workspace = true }
+future_form = { workspace = true }
+futures = { workspace = true }
+nonempty = { workspace = true }
+tracing = { workspace = true }
+
+# Testing
+proptest = { version = "1.5", optional = true }
+proptest-derive = { version = "0.5.0", optional = true }
+arbitrary = { workspace = true, optional = true }
+prettytable-rs = { version = "0.10.0", optional = true }
+
+[dev-dependencies]
+beekem = { version = "0.1.0", path = "../beekem", features = ["arbitrary"] }
+keyhive_core = { path = ".", features = ["test_utils", "debug_events"] }
+keyhive_crypto = { version = "0.1.0", path = "../keyhive_crypto", features = ["arbitrary"] }
+test-utils = { path = "../test-utils" }
+
+arbitrary.workspace = true
+lazy_static = "1.5"
+tokio = { version = "1.43", features = [
+    "macros",
+    "rt",
+    "sync",
+    "rt-multi-thread",
+] }
+tokio-test = "0.4.4"
+
+# Benchmarks
+divan = "0.1.15"
+
+# Test Helpers
+hex.workspace = true
+pretty_assertions = "1.4"
+testresult = "0.4.1"
+tracing-subscriber = { version = "0.3.19", features = ["ansi", "env-filter"] }
+
+[features]
+default = []
+debug_events = ["prettytable-rs"]
+mermaid_docs = ["aquamarine"]
+test_utils = ["beekem/test_utils", "proptest", "proptest-derive"]
+
+[[bench]]
+name = "bench_cgka"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_reachable_prekey_ops"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_toggling_delegate_revoke"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_ingest_unsorted_static_events"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_reverse_topsort"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_reachable_prekey_ops_all"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_membership_ops_all"
+harness = false
+required-features = ["test_utils"]
+
+[[bench]]
+name = "bench_cgka_propagation"
+harness = false
+required-features = ["test_utils"]
+
+[lints.clippy]
+doc_overindented_list_items = "allow"
