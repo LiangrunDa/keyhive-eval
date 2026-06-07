@@ -30,16 +30,19 @@ pub struct Siv([u8; 24]);
 
 impl Siv {
     pub fn new(key: &SymmetricKey, plaintext: &[u8], doc_id: &[u8]) -> Siv {
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(SEPARATOR);
-        hasher.update(doc_id);
-        hasher.update(key.as_slice());
-        hasher.update(plaintext);
+        crate::instrumentation::prf();
+        crate::instrumentation::timed_sym(|| {
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(SEPARATOR);
+            hasher.update(doc_id);
+            hasher.update(key.as_slice());
+            hasher.update(plaintext);
 
-        let mut buf = [0; 24];
-        hasher.finalize_xof().fill(&mut buf);
+            let mut buf = [0; 24];
+            hasher.finalize_xof().fill(&mut buf);
 
-        Siv(buf)
+            Siv(buf)
+        })
     }
 
     /// Convert to a [`chacha20poly1305::XNonce`].

@@ -24,6 +24,22 @@ public class CliEvaluation implements Callable<Integer> {
     @Option(names = {"-i", "--iterations"}, defaultValue = "10", description = "Number of iterations for each test scenario")
     public int iterations;
 
+    @Option(names = {"--group-sizes"}, split = ",",
+            description = "Comma-separated group sizes for the group-size sweep (default: sqrt(2) ladder 8..128). " +
+                    "Override (e.g. 8,16,32,64,128,256,512,1024) to extend the range; the regenerated series then no " +
+                    "longer matches the committed baseline.")
+    public int[] groupSizes = new int[0];
+
+    @Option(names = {"--history-sweep"}, description = "Fix the group size and sweep history size for add/welcome evaluation")
+    public boolean historySweep;
+
+    @Option(names = {"--fixed-group-size"}, defaultValue = "32", description = "Fixed group size used by --history-sweep")
+    public int fixedGroupSize;
+
+    @Option(names = {"--history-sizes"}, split = ",", defaultValue = "0,2,4,8,16,32,64",
+            description = "Comma-separated history sizes used by --history-sweep")
+    public int[] historySizes;
+
     public static void main(final String[] args) {
         final ThreadMXBean threadBean = ManagementFactory.getThreadMXBean();
         if (!threadBean.isThreadCpuTimeSupported()) {

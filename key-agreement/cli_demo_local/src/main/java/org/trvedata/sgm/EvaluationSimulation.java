@@ -5,6 +5,7 @@ import org.trvedata.sgm.crypto.IdentityKey;
 import org.trvedata.sgm.crypto.IdentityKeyPair;
 import org.trvedata.sgm.crypto.InMemoryPreKeySource;
 import org.trvedata.sgm.crypto.PreKeySecret;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Logger;
 
 import java.io.BufferedWriter;
@@ -16,6 +17,7 @@ import java.util.Collections;
 import java.util.Random;
 
 import static org.trvedata.sgm.MetricsCapturer.MetricCaptureResult;
+import static org.trvedata.sgm.MetricsCapturer.PrimitiveCaptureResult;
 
 public class EvaluationSimulation {
 
@@ -27,8 +29,18 @@ public class EvaluationSimulation {
     }
 
     public void run() throws InterruptedException {
-        // test parameters
-        final ArrayList<Integer> groupSizes = groupSizes(8, 128);
+        if (mArgs.historySweep) {
+            runHistorySweep();
+            return;
+        }
+
+        // test parameters. Default to the committed 8..512 ladder (which the committed
+        // baselines were generated with); --group-sizes overrides it to extend the range.
+        final ArrayList<Integer> groupSizes = new ArrayList<>();
+        final int[] sizes = (mArgs.groupSizes != null && mArgs.groupSizes.length > 0)
+                ? mArgs.groupSizes
+                : new int[]{8, 16, 32, 64, 128, 256, 512};
+        for (final int gs : sizes) groupSizes.add(gs);
         final Operation[] operations = new Operation[]{Operation.MESSAGE, Operation.REMOVE, Operation.ADD, Operation.UPDATE};
         final int iterations = mArgs.iterations;
 
@@ -70,6 +82,43 @@ public class EvaluationSimulation {
             mArgs.csvOutputFolder.mkdirs();
             writeCsv(results.trafficMetrics, new File(mArgs.csvOutputFolder, "traffic.csv"));
             writeCsv(results.timeMetrics, new File(mArgs.csvOutputFolder, "time.csv"));
+            writePrimitiveCsv(results.primitiveMetrics, new File(mArgs.csvOutputFolder, "dcgka-primitives.csv"));
+        }
+    }
+
+    private void runHistorySweep() throws InterruptedException {
+        final int iterations = mArgs.iterations;
+        final ArrayList<TestRunParameters> parameters = new ArrayList<>();
+        final TestRunResults results = TestRunResults.empty();
+
+        for (int i = 0; i < iterations; i++) {
+            for (final int historySize : mArgs.historySizes) {
+                if (historySize % 2 != 0) {
+                    throw new IllegalArgumentException("DCGKA history sweep uses add/remove pairs, so history sizes must be even: " + historySize);
+                }
+                parameters.add(new TestRunParameters(mArgs.fixedGroupSize, Operation.ADD, DcgkaChoice.FULL, historySize));
+            }
+        }
+
+        runTestCase(new TestRunParameters(mArgs.fixedGroupSize, Operation.ADD, DcgkaChoice.FULL, 2));
+        System.out.println("history-sweep warm-up finished");
+
+        for (int i = 0; i < parameters.size(); i++) {
+            System.gc();
+            Thread.sleep(1000);
+
+            final TestRunResults result = runTestCase(parameters.get(i));
+            results.add(result);
+
+            final int threadCnt = Thread.getAllStackTraces().keySet().size();
+            System.out.println((i) + "/" + parameters.size() + ": " + result.toString() + " #threads=" + threadCnt);
+        }
+
+        if (mArgs.csvOutputFolder != null) {
+            mArgs.csvOutputFolder.mkdirs();
+            writeCsv(results.trafficMetrics, new File(mArgs.csvOutputFolder, "traffic.csv"));
+            writeCsv(results.timeMetrics, new File(mArgs.csvOutputFolder, "time.csv"));
+            writePrimitiveCsv(results.primitiveMetrics, new File(mArgs.csvOutputFolder, "dcgka-primitives.csv"));
         }
     }
 
@@ -87,13 +136,18 @@ public class EvaluationSimulation {
         }
     }
 
-    private ArrayList<Integer> groupSizes(final int fromIncl, final int toIncl) {
-        final ArrayList<Integer> groupSizes = new ArrayList<>();
-        final double multiplier = Math.sqrt(2);
-        for (double gs = fromIncl; gs <= toIncl + 1; gs *= multiplier) {
-            groupSizes.add((int) gs);
+    private void writePrimitiveCsv(final ArrayList<PrimitiveCaptureResult> results, final File csvOutput) {
+        try (final BufferedWriter outputWriter = new BufferedWriter(new FileWriter(csvOutput))) {
+            outputWriter.write(results.get(0).getCsvHeader());
+            outputWriter.newLine();
+
+            for (final PrimitiveCaptureResult result : results) {
+                outputWriter.write(result.toCsvRow());
+                outputWriter.newLine();
+            }
+        } catch (final IOException e) {
+            throw new RuntimeException("Failed to write CSV output file", e);
         }
-        return groupSizes;
     }
 
     private TestRunResults runTestCase(final TestRunParameters params) throws InterruptedException {
@@ -128,10 +182,22 @@ public class EvaluationSimulation {
         metrics.setupEnd();
         for (final ThreadedClient client : clients) client.start();
 
+        for (int historyIndex = 0; historyIndex < params.historySize / 2; historyIndex++) {
+            performHistoryMembershipPair(clients, network, preKeySource, params, historyIndex);
+        }
+
+        if (params.historySize > 0) {
+            for (final ThreadedClient client : clients) client.stop();
+            for (final ThreadedClient client : clients) client.join();
+            for (final ThreadedClient client : clients) client.start();
+        }
+
         // OPERATION
         for (final ThreadedClient client : clients) client.clearNextOperation();
         metrics.operationBegin();
 
+        Instrumentation.reset();
+        final long senderCpuStart = Utils.getCpuTimeForCurrentThread();
         switch (params.operation) {
             case MESSAGE:
                 for (final ThreadedClient client : receivers) client.expectNextOperation(1);// sender excluded
@@ -145,7 +211,7 @@ public class EvaluationSimulation {
                 // pre-made prekeys.
                 final DsgmClient dsgmClient = new DsgmClient(network, toAddPreKeySecret, preKeySource, "NewMember",
                         toAddKeyPair, createClientImplementation(params.dcgkaChoice));
-                final ThreadedClient toBeAdded = new ThreadedClient(dsgmClient, network, ThreadedClient.ClientRole.RECIPIENT);
+                final ThreadedClient toBeAdded = new ThreadedClient(dsgmClient, network, ThreadedClient.ClientRole.NEW_RECIPIENT);
 
                 toBeAdded.expectNextOperation(params.groupsize);
                 toBeAdded.start();
@@ -171,6 +237,9 @@ public class EvaluationSimulation {
                 sender.update();
                 break;
         }
+        final Instrumentation.Counters senderSnapshot = Instrumentation.snapshot();
+        senderSnapshot.totalNanos = Utils.getCpuTimeForCurrentThread() - senderCpuStart;
+        metrics.recordSenderPrimitives(senderSnapshot);
 
         for (final ThreadedClient client : receivers) client.waitUntilNextOperationFinished(params.operation);// sender excluded
         sender.waitUntilNextOperationFinishedSender();
@@ -181,6 +250,50 @@ public class EvaluationSimulation {
         metrics.operationEnd();
 
         return TestRunResults.fromMetricsCapturer(metrics, params);
+    }
+
+    private void performHistoryMembershipPair(
+            final ArrayList<ThreadedClient> clients,
+            final ThreadSafeNetwork network,
+            final InMemoryPreKeySource preKeySource,
+            final TestRunParameters params,
+            final int historyIndex) throws InterruptedException {
+        final ThreadedClient sender = clients.get(0);
+        final int currentGroupSize = clients.size();
+        final IdentityKeyPair keyPair = IdentityKey.generateKeyPair();
+        final PreKeySecret preKeySecret = preKeySource.registerUser(keyPair, currentGroupSize + 1);
+        final DsgmClient dsgmClient = new DsgmClient(network, preKeySecret, preKeySource, "HistoryMember" + historyIndex,
+                keyPair, createClientImplementation(params.dcgkaChoice));
+        final ThreadedClient added = new ThreadedClient(dsgmClient, network, ThreadedClient.ClientRole.RECIPIENT);
+
+        for (final ThreadedClient client : clients) client.expectNextOperation(currentGroupSize);
+        added.expectNextOperation(currentGroupSize);
+        added.start();
+        sender.addMember(added);
+        for (final ThreadedClient client : clients) {
+            if (client == sender) continue;
+            client.waitUntilNextOperationFinished(Operation.ADD);
+        }
+        added.waitUntilNextOperationFinished(Operation.ADD);
+        sender.waitUntilNextOperationFinishedSender();
+        clients.add(added);
+
+        final int sizeAfterAdd = clients.size();
+        for (final ThreadedClient client : clients) {
+            if (client != added) client.expectNextOperation(sizeAfterAdd - 2);
+        }
+        added.expectNextOperation(1);
+        sender.removeMember(added);
+        for (final ThreadedClient client : clients) {
+            if (client == sender || client == added) continue;
+            client.waitUntilNextOperationFinished(Operation.REMOVE);
+        }
+        sender.waitUntilNextOperationFinishedSender();
+        clients.remove(added);
+        added.stop();
+        added.join();
+
+        for (final ThreadedClient client : clients) client.clearPrimitiveSnapshots();
     }
 
 
@@ -205,17 +318,24 @@ public class EvaluationSimulation {
         public final int groupsize;
         public final Operation operation;
         public final DcgkaChoice dcgkaChoice;
+        public final int historySize;
 
         public TestRunParameters(final int groupsize, final Operation operation, final DcgkaChoice dcgkaChoice) {
+            this(groupsize, operation, dcgkaChoice, 0);
+        }
+
+        public TestRunParameters(final int groupsize, final Operation operation, final DcgkaChoice dcgkaChoice, final int historySize) {
             this.groupsize = groupsize;
             this.operation = operation;
             this.dcgkaChoice = dcgkaChoice;
+            this.historySize = historySize;
         }
     }
 
     private static class TestRunResults {
         public final ArrayList<MetricCaptureResult> trafficMetrics = new ArrayList<>();
         public final ArrayList<MetricCaptureResult> timeMetrics = new ArrayList<>();
+        public final ArrayList<PrimitiveCaptureResult> primitiveMetrics = new ArrayList<>();
 
         private TestRunResults() {
         }
@@ -229,12 +349,14 @@ public class EvaluationSimulation {
             final TestRunResults instance = new TestRunResults();
             instance.trafficMetrics.add(metricsCapturer.getTrafficResults(params));
             instance.timeMetrics.addAll(metricsCapturer.getTimeResultsForClients(params));
+            instance.primitiveMetrics.addAll(metricsCapturer.getPrimitiveResults(params));
             return instance;
         }
 
         public void add(final TestRunResults other) {
             this.trafficMetrics.addAll(other.trafficMetrics);
             this.timeMetrics.addAll(other.timeMetrics);
+            this.primitiveMetrics.addAll(other.primitiveMetrics);
         }
 
         @Override

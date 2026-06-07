@@ -51,7 +51,8 @@ impl EphemeralSigner {
         csprng: &mut R,
         f: impl FnOnce(ed25519_dalek::VerifyingKey, Box<dyn SyncSignerBasic>) -> T,
     ) -> (T, ed25519_dalek::VerifyingKey) {
-        let sk = ed25519_dalek::SigningKey::generate(csprng);
+        crate::instrumentation::keygen();
+        let sk = crate::instrumentation::timed_pubkey(|| ed25519_dalek::SigningKey::generate(csprng));
         let vk = sk.verifying_key();
         (f(vk, Box::new(sk)), vk)
     }
@@ -93,7 +94,8 @@ impl EphemeralSigner {
             Box<dyn ed25519_dalek::Signer<ed25519_dalek::Signature>>,
         ) -> Fut,
     ) -> (Fut, ed25519_dalek::VerifyingKey) {
-        let sk = ed25519_dalek::SigningKey::generate(csprng);
+        crate::instrumentation::keygen();
+        let sk = crate::instrumentation::timed_pubkey(|| ed25519_dalek::SigningKey::generate(csprng));
         let vk = sk.verifying_key();
         (f(vk, Box::new(sk)), vk)
     }
@@ -105,7 +107,8 @@ impl ed25519_dalek::Signer<ed25519_dalek::Signature> for EphemeralSigner {
         &self,
         msg: &[u8],
     ) -> Result<ed25519_dalek::Signature, ed25519_dalek::SignatureError> {
-        self.0.try_sign(msg)
+        crate::instrumentation::sign();
+        crate::instrumentation::timed_pubkey(|| self.0.try_sign(msg))
     }
 }
 

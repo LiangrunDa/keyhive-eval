@@ -338,6 +338,13 @@ impl Cgka {
         self.tree.member_count()
     }
 
+    /// Number of inner tree nodes that currently hold conflict (multi-version) keys.
+    ///
+    /// Zero means the tree is conflict-free and back in BeeKEM's low-conflict regime.
+    pub fn conflict_node_count(&self) -> usize {
+        self.tree.conflict_node_count()
+    }
+
     /// Merges concurrent [`CgkaOperation`]. Returns `Ok(true)` if merge is successful.
     ///
     /// If we receive a concurrent membership change (i.e., add or remove), then

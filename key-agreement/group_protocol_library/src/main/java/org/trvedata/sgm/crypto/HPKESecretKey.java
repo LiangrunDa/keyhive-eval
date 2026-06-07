@@ -3,6 +3,7 @@ package org.trvedata.sgm.crypto;
 import djb.Curve25519;
 import org.apache.thrift.TException;
 import org.trvedata.sgm.message.HPKEMessage;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Utils;
 
 public class HPKESecretKey {
@@ -19,16 +20,19 @@ public class HPKESecretKey {
      * Returns null if decryption fails.
      */
     public byte[] decrypt(byte[] ciphertext) {
-        HPKEMessage deserialized = new HPKEMessage();
-        HPKEPublicKey ephemeralPublicKey;
-        try {
-            Utils.deserialize(deserialized, ciphertext);
-            ephemeralPublicKey = new HPKEPublicKey(deserialized.getDhPublicKey());
-        } catch (TException | IllegalArgumentException exc) {
-            return null;
-        }
-        byte[] symmetricKey = ephemeralPublicKey.dhExchange(this);
-        return Utils.aeadDecrypt(deserialized.getSymmetricCiphertext(), symmetricKey);
+        Instrumentation.recordHpkeDecrypt();
+        return Instrumentation.timedPubkey(() -> Instrumentation.withSuppressed(() -> {
+            HPKEMessage deserialized = new HPKEMessage();
+            HPKEPublicKey ephemeralPublicKey;
+            try {
+                Utils.deserialize(deserialized, ciphertext);
+                ephemeralPublicKey = new HPKEPublicKey(deserialized.getDhPublicKey());
+            } catch (TException | IllegalArgumentException exc) {
+                return null;
+            }
+            byte[] symmetricKey = ephemeralPublicKey.dhExchange(this);
+            return Utils.aeadDecrypt(deserialized.getSymmetricCiphertext(), symmetricKey);
+        }));
     }
 
     public byte[] serialize() {

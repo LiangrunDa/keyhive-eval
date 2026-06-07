@@ -47,7 +47,10 @@ impl MemorySigner {
     /// assert_eq!(signer.verifying_key().to_bytes().len(), 32);
     /// ```
     pub fn generate<R: rand::CryptoRng + rand::RngCore>(csprng: &mut R) -> Self {
-        Self(ed25519_dalek::SigningKey::generate(csprng))
+        crate::instrumentation::keygen();
+        Self(crate::instrumentation::timed_pubkey(|| {
+            ed25519_dalek::SigningKey::generate(csprng)
+        }))
     }
 
     /// Sign a byte slice synchronously.
@@ -60,8 +63,8 @@ impl MemorySigner {
         &self,
         payload_bytes: &[u8],
     ) -> Result<ed25519_dalek::Signature, SigningError> {
-        self.0
-            .try_sign(payload_bytes)
+        crate::instrumentation::sign();
+        crate::instrumentation::timed_pubkey(|| self.0.try_sign(payload_bytes))
             .map_err(SigningError::SigningFailed)
     }
 
@@ -134,7 +137,8 @@ impl ed25519_dalek::Signer<ed25519_dalek::Signature> for MemorySigner {
         &self,
         msg: &[u8],
     ) -> Result<ed25519_dalek::Signature, ed25519_dalek::SignatureError> {
-        self.0.try_sign(msg)
+        crate::instrumentation::sign();
+        crate::instrumentation::timed_pubkey(|| self.0.try_sign(msg))
     }
 }
 

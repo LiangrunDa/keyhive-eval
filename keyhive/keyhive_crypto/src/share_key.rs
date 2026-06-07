@@ -26,9 +26,12 @@ impl<'a> arbitrary::Arbitrary<'a> for ShareKey {
 impl ShareKey {
     #[instrument(skip_all)]
     pub fn generate<R: rand::CryptoRng + rand::RngCore>(csprng: &mut R) -> Self {
-        Self(x25519_dalek::PublicKey::from(
-            &x25519_dalek::EphemeralSecret::random_from_rng(csprng),
-        ))
+        crate::instrumentation::keygen();
+        crate::instrumentation::timed_pubkey(|| {
+            Self(x25519_dalek::PublicKey::from(
+                &x25519_dalek::EphemeralSecret::random_from_rng(csprng),
+            ))
+        })
     }
 
     pub fn as_bytes(&self) -> &[u8; 32] {
@@ -96,7 +99,10 @@ pub struct ShareSecretKey([u8; 32]);
 impl ShareSecretKey {
     #[instrument(skip_all)]
     pub fn generate<R: rand::CryptoRng + rand::RngCore>(csprng: &mut R) -> Self {
-        x25519_dalek::StaticSecret::random_from_rng(csprng).into()
+        crate::instrumentation::keygen();
+        crate::instrumentation::timed_pubkey(|| -> Self {
+            x25519_dalek::StaticSecret::random_from_rng(csprng).into()
+        })
     }
 
     pub fn share_key(&self) -> ShareKey {
@@ -115,18 +121,24 @@ impl ShareSecretKey {
 
     #[instrument]
     pub fn derive_new_secret_key(&self, other: &ShareKey) -> Self {
-        let bytes: [u8; 32] = x25519_dalek::StaticSecret::from(*self)
-            .diffie_hellman(&other.0)
-            .to_bytes();
+        crate::instrumentation::dh();
+        let bytes: [u8; 32] = crate::instrumentation::timed_pubkey(|| {
+            x25519_dalek::StaticSecret::from(*self)
+                .diffie_hellman(&other.0)
+                .to_bytes()
+        });
 
         Self::derive_from_bytes(bytes.as_slice())
     }
 
     #[instrument]
     pub fn derive_symmetric_key(&self, other: &ShareKey) -> SymmetricKey {
-        let secret = x25519_dalek::StaticSecret::from(*self)
-            .diffie_hellman(&other.0)
-            .to_bytes();
+        crate::instrumentation::dh();
+        let secret = crate::instrumentation::timed_pubkey(|| {
+            x25519_dalek::StaticSecret::from(*self)
+                .diffie_hellman(&other.0)
+                .to_bytes()
+        });
 
         Self::derive_from_bytes(secret.as_slice()).0.into()
     }

@@ -388,6 +388,18 @@ impl BeeKem {
         }
     }
 
+    /// Number of inner nodes that currently hold conflict (multi-version) keys.
+    ///
+    /// A tree is conflict-free (back in BeeKEM's low-conflict regime) exactly when
+    /// this is zero. Used by the partition-pressure evaluation to detect when the
+    /// recovery window closes.
+    pub fn conflict_node_count(&self) -> usize {
+        self.inner_nodes
+            .iter()
+            .filter(|node| node.as_ref().is_some_and(|store| store.has_conflict()))
+            .count()
+    }
+
     /// Decrypt parent node's [`ShareSecretKey`].
     ///
     /// Returns the secret if there is a single parent public key.

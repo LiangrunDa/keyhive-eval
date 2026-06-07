@@ -3,6 +3,7 @@ package org.trvedata.sgm.crypto;
 import org.apache.commons.lang3.tuple.Pair;
 import org.pcollections.HashPMap;
 import org.pcollections.HashTreePMap;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Utils;
 
 import java.nio.ByteBuffer;
@@ -25,7 +26,8 @@ public class PuncturablePseudorandomFunction {
     public PuncturablePseudorandomFunction(final byte[] seed, final Iterable<byte[]> inputs) {
         HashMap<ByteBuffer, byte[]> valuesConstructor = new HashMap<>();
         for (byte[] input : inputs) {
-            valuesConstructor.put(ByteBuffer.wrap(input), Utils.hash(input, seed));
+            Instrumentation.recordPrf();
+            valuesConstructor.put(ByteBuffer.wrap(input), Instrumentation.withSuppressed(() -> Utils.hash(input, seed)));
         }
         values = HashTreePMap.from(valuesConstructor);
     }

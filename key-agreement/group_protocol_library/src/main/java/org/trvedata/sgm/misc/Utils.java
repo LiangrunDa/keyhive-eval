@@ -27,14 +27,15 @@ import java.security.SecureRandom;
  */
 public class Utils {
     public static byte[] getSecureRandomBytes(final int byteLength) {
+        Instrumentation.recordRandomBytes(byteLength);
         final byte[] result = new byte[byteLength];
         new SecureRandom().nextBytes(result);
         return result;
     }
 
     public static byte[] serialize(final TBase thrift) {
-        final TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
         try {
+            final TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
             return serializer.serialize(thrift);
         } catch (TException exc) {
             throw new RuntimeException(exc);
@@ -47,28 +48,42 @@ public class Utils {
     }
 
     public static byte[] hash(final byte[]... inputByteArrays) {
-        return hash(null, inputByteArrays);
+        Instrumentation.recordHash();
+        return hashRaw(null, inputByteArrays);
     }
 
     public static byte[] hash(final String inputString, final byte[]... inputByteArrays) {
-        try {
-            final MessageDigest md = MessageDigest.getInstance("SHA-256");
-            if (inputString != null) {
-                md.update(inputString.getBytes(StandardCharsets.UTF_8));
+        Instrumentation.recordHash();
+        return hashRaw(inputString, inputByteArrays);
+    }
+
+    /** Computes a hash without recording a primitive; used internally by other primitives. */
+    public static byte[] hashRaw(final byte[]... inputByteArrays) {
+        return hashRaw(null, inputByteArrays);
+    }
+
+    public static byte[] hashRaw(final String inputString, final byte[]... inputByteArrays) {
+        return Instrumentation.timedSym(() -> {
+            try {
+                final MessageDigest md = MessageDigest.getInstance("SHA-256");
+                if (inputString != null) {
+                    md.update(inputString.getBytes(StandardCharsets.UTF_8));
+                }
+                for (byte[] input : inputByteArrays) md.update(input);
+                return md.digest();
+            } catch (NoSuchAlgorithmException exc) {
+                throw new RuntimeException(exc);
             }
-            for (byte[] input : inputByteArrays) md.update(input);
-            return md.digest();
-        } catch (NoSuchAlgorithmException exc) {
-            throw new RuntimeException(exc);
-        }
+        });
     }
 
     public static byte[] aeadEncrypt(final byte[] plaintext, final byte[] associatedData, final byte[] key,
                                      final boolean includeAd) {
+        Instrumentation.recordAeadEncrypt();
         Preconditions.checkArgument(key.length > 0, "key must not be empty");
 
-        final byte[] trueKey = hash("key", key);
-        final byte[] iv = hash("iv", key);
+        final byte[] trueKey = hashRaw("key", key);
+        final byte[] iv = hashRaw("iv", key);
         try {
             // From https://proandroiddev.com/security-best-practices-symmetric-encryption-with-aes-in-java-7616beaaade9
             final Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
@@ -86,7 +101,6 @@ public class Utils {
         } catch (GeneralSecurityException exc) {
             throw new RuntimeException(exc);
         }
-
     }
 
     /**
@@ -103,10 +117,11 @@ public class Utils {
     }
 
     public static byte[] aeadDecrypt(final byte[] ciphertext, final byte[] key, final byte[] associatedData) {
+        Instrumentation.recordAeadDecrypt();
         Preconditions.checkArgument(key.length > 0, "key must not be empty");
 
-        final byte[] trueKey = hash("key", key);
-        final byte[] iv = hash("iv", key);
+        final byte[] trueKey = hashRaw("key", key);
+        final byte[] iv = hashRaw("iv", key);
         try {
             // From https://proandroiddev.com/security-best-practices-symmetric-encryption-with-aes-in-java-7616beaaade9
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");

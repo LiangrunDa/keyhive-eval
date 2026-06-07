@@ -3,6 +3,7 @@ package org.trvedata.sgm.crypto;
 import djb.Curve25519;
 import org.apache.commons.lang3.tuple.Pair;
 import org.trvedata.sgm.message.HPKEMessage;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Utils;
 
 import java.nio.ByteBuffer;
@@ -23,17 +24,23 @@ public class HPKEPublicKey {
     }
 
     /* package */ byte[] dhExchange(HPKESecretKey other) {
-        byte[] result = new byte[Curve25519.KEY_SIZE];
-        Curve25519.curve(result, other.curve25519SecretKey, curve25519PublicKey);
-        return result;
+        Instrumentation.recordDh();
+        return Instrumentation.timedPubkey(() -> {
+            byte[] result = new byte[Curve25519.KEY_SIZE];
+            Curve25519.curve(result, other.curve25519SecretKey, curve25519PublicKey);
+            return result;
+        });
     }
 
     public byte[] encrypt(byte[] plaintext) {
-        Pair<HPKEPublicKey, HPKESecretKey> ephemeralKeyPair = generateKeyPair();
-        byte[] symmetricKey = dhExchange(ephemeralKeyPair.getRight());
-        byte[] symmetricCiphertext = Utils.aeadEncrypt(plaintext, new byte[0], symmetricKey, true);
-        return Utils.serialize(new HPKEMessage(ByteBuffer.wrap(ephemeralKeyPair.getLeft().serialize()),
-                ByteBuffer.wrap(symmetricCiphertext)));
+        Instrumentation.recordHpkeEncrypt();
+        return Instrumentation.timedPubkey(() -> Instrumentation.withSuppressed(() -> {
+            Pair<HPKEPublicKey, HPKESecretKey> ephemeralKeyPair = generateKeyPair();
+            byte[] symmetricKey = dhExchange(ephemeralKeyPair.getRight());
+            byte[] symmetricCiphertext = Utils.aeadEncrypt(plaintext, new byte[0], symmetricKey, true);
+            return Utils.serialize(new HPKEMessage(ByteBuffer.wrap(ephemeralKeyPair.getLeft().serialize()),
+                    ByteBuffer.wrap(symmetricCiphertext)));
+        }));
     }
 
     public byte[] serialize() {
@@ -41,9 +48,12 @@ public class HPKEPublicKey {
     }
 
     public static Pair<HPKEPublicKey, HPKESecretKey> generateKeyPair() {
-        byte[] secretKey = Utils.getSecureRandomBytes(Curve25519.KEY_SIZE);
-        byte[] publicKey = new byte[Curve25519.KEY_SIZE];
-        Curve25519.keygen(publicKey, null, secretKey);
-        return Pair.of(new HPKEPublicKey(publicKey), new HPKESecretKey(secretKey));
+        Instrumentation.recordKeygen();
+        return Instrumentation.timedPubkey(() -> {
+            byte[] secretKey = Utils.getSecureRandomBytes(Curve25519.KEY_SIZE);
+            byte[] publicKey = new byte[Curve25519.KEY_SIZE];
+            Curve25519.keygen(publicKey, null, secretKey);
+            return Pair.of(new HPKEPublicKey(publicKey), new HPKESecretKey(secretKey));
+        });
     }
 }

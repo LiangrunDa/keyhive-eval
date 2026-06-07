@@ -2,11 +2,14 @@ package org.trvedata.sgm;
 
 import org.trvedata.sgm.communication.Client;
 import org.trvedata.sgm.crypto.IdentityKey;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Preconditions;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -17,7 +20,8 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     public enum ClientRole {
         SENDER,
-        RECIPIENT
+        RECIPIENT,
+        NEW_RECIPIENT
     }
 
     private final LinkedBlockingQueue<NetworkMessageWithSender> mIncomingMessages = new LinkedBlockingQueue<>();
@@ -44,6 +48,8 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
      */
     private final LinkedBlockingQueue<Operation> mFinishedOperations = new LinkedBlockingQueue<>();
     private CountDownLatch countExpectedMessagesLatch;
+    private final List<PrimitiveSnapshot> mPrimitiveSnapshots = Collections.synchronizedList(new ArrayList<>());
+    private String mCurrentMessageKind = "unknown";
 
     private final DsgmClient mDsgmClient;
     private final String mName;
@@ -105,7 +111,17 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
                 final NetworkMessageWithSender incomingMessage = mIncomingMessages.poll(500, TimeUnit.MILLISECONDS);
                 if (incomingMessage != null) {
                     synchronized (mDsgmClient) {
+                        mCurrentMessageKind = "unknown";
+                        Instrumentation.reset();
+                        final long cpuStart = Utils.getCpuTimeForCurrentThread();
                         mDsgmClient.handleMessageFromNetwork(incomingMessage.senderIdentifier, incomingMessage.message);
+                        final Instrumentation.Counters snapshot = Instrumentation.snapshot();
+                        snapshot.totalNanos = Utils.getCpuTimeForCurrentThread() - cpuStart;
+                        mPrimitiveSnapshots.add(new PrimitiveSnapshot(
+                                mClientRole,
+                                mCurrentMessageKind,
+                                snapshot
+                        ));
                     }
                 }
             }
@@ -176,6 +192,16 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
         mFinishedOperations.clear();
     }
 
+    public void clearPrimitiveSnapshots() {
+        mPrimitiveSnapshots.clear();
+    }
+
+    public ArrayList<PrimitiveSnapshot> primitiveSnapshots() {
+        synchronized (mPrimitiveSnapshots) {
+            return new ArrayList<>(mPrimitiveSnapshots);
+        }
+    }
+
     public void waitUntilNextOperationFinished(final Operation expectedOperation) throws InterruptedException {
         final Operation actual = mFinishedOperations.take();
         if (actual != expectedOperation) {
@@ -213,6 +239,7 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     @Override
     public void onIncomingMessage(IdentityKey sender, byte[] plaintext) {
+        mCurrentMessageKind = "message";
         if (countExpectedMessagesLatch != null) countExpectedMessagesLatch.countDown();
         mFinishedOperations.add(Operation.MESSAGE);
         // Logger.d(mName, "Received message: " + new String(plaintext));
@@ -220,6 +247,7 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     @Override
     public void onUpdate(IdentityKey sender, Object messageId) {
+        mCurrentMessageKind = "update";
         if (countExpectedMessagesLatch != null) countExpectedMessagesLatch.countDown();
         mFinishedOperations.add(Operation.UPDATE);
         // Logger.d(mName, getName(sender) + " just updated");
@@ -227,6 +255,7 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     @Override
     public void onAdd(IdentityKey adder, IdentityKey added, Object messageId) {
+        mCurrentMessageKind = "add";
         if (countExpectedMessagesLatch != null) countExpectedMessagesLatch.countDown();
         if (mIsSetupLatch != null && !receivedCreate) {
             receivedCreate = true;
@@ -238,6 +267,7 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     @Override
     public void onRemove(IdentityKey remover, ArrayList<IdentityKey> removed, Object messageId) {
+        mCurrentMessageKind = "remove";
         if (countExpectedMessagesLatch != null) countExpectedMessagesLatch.countDown();
         mFinishedOperations.add(Operation.REMOVE);
         // Logger.d(mName, getName(remover) + " just removed " + Utils.identifierListToString(this, removed));
@@ -245,8 +275,24 @@ public class ThreadedClient extends Client implements Runnable, DsgmClient.DsgmL
 
     @Override
     public void onAck(IdentityKey acker, Object acked) {
+        mCurrentMessageKind = "ack";
         if (countExpectedMessagesLatch != null) countExpectedMessagesLatch.countDown();
         if (mIsSetupLatch != null) mIsSetupLatch.countDown();
+    }
+
+    public static class PrimitiveSnapshot {
+        public final ClientRole clientRole;
+        public final String messageKind;
+        public final Instrumentation.Counters counters;
+
+        PrimitiveSnapshot(
+                final ClientRole clientRole,
+                final String messageKind,
+                final Instrumentation.Counters counters) {
+            this.clientRole = clientRole;
+            this.messageKind = messageKind;
+            this.counters = counters;
+        }
     }
 
     class NetworkMessageWithSender {

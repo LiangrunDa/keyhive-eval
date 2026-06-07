@@ -3,6 +3,7 @@ package org.trvedata.sgm.crypto;
 import djb.Curve25519;
 import org.apache.thrift.TException;
 import org.trvedata.sgm.message.SignatureStruct;
+import org.trvedata.sgm.misc.Instrumentation;
 import org.trvedata.sgm.misc.Utils;
 
 import java.nio.ByteBuffer;
@@ -19,18 +20,21 @@ public class IdentityKey implements Comparable<IdentityKey> {
     }
 
     public boolean verify(byte[] plaintext, byte[] signature) {
+        Instrumentation.recordVerify();
         // Curve25519 is undocumented; this usage is based on
         // https://github.com/facebookresearch/asynchronousratchetingtree/blob/master/AsynchronousRatchetingTree/src/main/java/com/facebook/research/asynchronousratchetingtree/crypto/DHPubKey.java
-        SignatureStruct deserialized = new SignatureStruct();
-        try {
-            Utils.deserialize(deserialized, signature);
-        } catch (TException exc) {
-            return false;
-        }
-        byte[] output = new byte[Curve25519.KEY_SIZE];
-        Curve25519.verify(output, deserialized.getAlgOutput(),
-                Utils.hash(plaintext, this.curve25519PublicKey), this.curve25519PublicKey);
-        return Arrays.equals(Utils.hash(output), deserialized.getHashedPoint());
+        return Instrumentation.timedPubkey(() -> {
+            SignatureStruct deserialized = new SignatureStruct();
+            try {
+                Utils.deserialize(deserialized, signature);
+            } catch (TException exc) {
+                return false;
+            }
+            byte[] output = new byte[Curve25519.KEY_SIZE];
+            Curve25519.verify(output, deserialized.getAlgOutput(),
+                    Utils.hashRaw(plaintext, this.curve25519PublicKey), this.curve25519PublicKey);
+            return Arrays.equals(Utils.hashRaw(output), deserialized.getHashedPoint());
+        });
     }
 
     @Override
@@ -59,10 +63,13 @@ public class IdentityKey implements Comparable<IdentityKey> {
     }
 
     public static IdentityKeyPair generateKeyPair() {
-        byte[] secretKey = Utils.getSecureRandomBytes(Curve25519.KEY_SIZE);
-        byte[] signingKey = new byte[Curve25519.KEY_SIZE];
-        byte[] publicKey = new byte[Curve25519.KEY_SIZE];
-        Curve25519.keygen(publicKey, signingKey, secretKey);
-        return new IdentityKeyPair(secretKey, signingKey, new IdentityKey(publicKey));
+        Instrumentation.recordKeygen();
+        return Instrumentation.timedPubkey(() -> {
+            byte[] secretKey = Utils.getSecureRandomBytes(Curve25519.KEY_SIZE);
+            byte[] signingKey = new byte[Curve25519.KEY_SIZE];
+            byte[] publicKey = new byte[Curve25519.KEY_SIZE];
+            Curve25519.keygen(publicKey, signingKey, secretKey);
+            return new IdentityKeyPair(secretKey, signingKey, new IdentityKey(publicKey));
+        });
     }
 }

@@ -38,8 +38,9 @@ impl SymmetricKey {
 
     /// Generate a new random symmetric key.
     pub fn generate<R: rand::CryptoRng + rand::RngCore>(csprng: &mut R) -> Self {
+        crate::instrumentation::keygen();
         let mut key = [0u8; 32];
-        csprng.fill_bytes(&mut key);
+        crate::instrumentation::timed_pubkey(|| csprng.fill_bytes(&mut key));
         Self(key)
     }
 
@@ -55,8 +56,11 @@ impl SymmetricKey {
         nonce: Siv,
         data: &mut Vec<u8>,
     ) -> Result<(), chacha20poly1305::Error> {
-        self.to_xchacha()
-            .encrypt_in_place(nonce.as_xnonce(), SEPARATOR, data)
+        crate::instrumentation::aead_encrypt();
+        crate::instrumentation::timed_sym(|| {
+            self.to_xchacha()
+                .encrypt_in_place(nonce.as_xnonce(), SEPARATOR, data)
+        })
     }
 
     /// Decrypt data with the [`SymmetricKey`].
@@ -66,8 +70,11 @@ impl SymmetricKey {
         nonce: Siv,
         data: &mut Vec<u8>,
     ) -> Result<(), chacha20poly1305::Error> {
-        self.to_xchacha()
-            .decrypt_in_place(nonce.as_xnonce(), SEPARATOR, data)
+        crate::instrumentation::aead_decrypt();
+        crate::instrumentation::timed_sym(|| {
+            self.to_xchacha()
+                .decrypt_in_place(nonce.as_xnonce(), SEPARATOR, data)
+        })
     }
 }
 

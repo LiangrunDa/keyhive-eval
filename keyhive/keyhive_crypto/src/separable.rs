@@ -46,6 +46,8 @@ pub trait Separable: Sized {
     /// );
     /// ```
     fn derive_from_bytes(bytes: &[u8]) -> Self {
-        Self::directly_from_32_bytes(blake3::derive_key(SEPARATOR_STR, bytes))
+        crate::instrumentation::kdf();
+        let okm = crate::instrumentation::timed_sym(|| blake3::derive_key(SEPARATOR_STR, bytes));
+        Self::directly_from_32_bytes(okm)
     }
 }

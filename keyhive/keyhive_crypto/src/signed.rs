@@ -162,10 +162,12 @@ impl<T: Serialize + Debug> Signed<T> {
     #[cfg(feature = "std")]
     #[instrument(skip(self))]
     pub fn try_verify(&self) -> Result<(), VerificationError> {
+        crate::instrumentation::verify();
         let buf: Vec<u8> = bincode::serialize(&self.payload)?;
-        Ok(self
-            .verifying_key()
-            .verify(buf.as_slice(), &self.signature)?)
+        crate::instrumentation::timed_pubkey(|| {
+            self.verifying_key().verify(buf.as_slice(), &self.signature)
+        })?;
+        Ok(())
     }
 
     /// Map over the payload of the signed data.

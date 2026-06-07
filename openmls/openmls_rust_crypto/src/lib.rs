@@ -11,6 +11,8 @@ pub use provider::*;
 
 mod hmac;
 
+pub mod instrumentation;
+
 #[derive(Default, Debug)]
 #[cfg_attr(feature = "test-utils", derive(Clone))]
 pub struct OpenMlsRustCrypto {

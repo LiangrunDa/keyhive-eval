@@ -45,10 +45,11 @@ impl<T: Serialize> Digest<T> {
     /// ```
     #[cfg(feature = "std")]
     pub fn hash(preimage: &T) -> Self {
+        crate::instrumentation::hash();
         let bytes: Vec<u8> = bincode::serialize(&preimage).expect("unable to serialize to bytes");
 
         Self {
-            raw: blake3::hash(bytes.as_slice()),
+            raw: crate::instrumentation::timed_sym(|| blake3::hash(bytes.as_slice())),
             _phantom: PhantomData,
         }
     }

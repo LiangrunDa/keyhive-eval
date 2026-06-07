@@ -1,0 +1,8 @@
+groupsize,history_size,protocol,operation,setupsentbytes,operationsentbytes
+32,0,FULL,add,10916.0,14483.0
+32,2,FULL,add,10916.0,14670.0
+32,4,FULL,add,10916.0,14859.0
+32,8,FULL,add,10916.0,15243.0
+32,16,FULL,add,10916.0,16035.0
+32,32,FULL,add,10916.0,17716.0
+32,64,FULL,add,10916.0,21558.0

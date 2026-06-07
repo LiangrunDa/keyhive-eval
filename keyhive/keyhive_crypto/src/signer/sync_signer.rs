@@ -30,8 +30,9 @@ impl<F: FutureForm> AsyncSigner<F> for ed25519_dalek::SigningKey {
         &'a self,
         payload_bytes: &'a [u8],
     ) -> F::Future<'a, Result<ed25519_dalek::Signature, SigningError>> {
+        crate::instrumentation::sign();
         F::ready(
-            self.try_sign(payload_bytes)
+            crate::instrumentation::timed_pubkey(|| self.try_sign(payload_bytes))
                 .map_err(SigningError::SigningFailed),
         )
     }
@@ -72,7 +73,8 @@ impl SyncSignerBasic for ed25519_dalek::SigningKey {
         &self,
         payload_bytes: &[u8],
     ) -> Result<ed25519_dalek::Signature, SigningError> {
-        self.try_sign(payload_bytes)
+        crate::instrumentation::sign();
+        crate::instrumentation::timed_pubkey(|| self.try_sign(payload_bytes))
             .map_err(SigningError::SigningFailed)
     }
 }

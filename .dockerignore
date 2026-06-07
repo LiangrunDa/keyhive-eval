@@ -1,0 +1,20 @@
+# Keep the build context small and never copy host build outputs into the image
+# (they are regenerated inside the container).
+.git
+.gitignore
+**/target/
+results/
+__pycache__/
+*.pyc
+*.xdv
+.DS_Store
+
+# Gradle / Java build outputs and caches (key-agreement)
+.gradle/
+**/.gradle/
+**/build/
+key-agreement/**/build/
+
+# Paper sources live in their own repository and are not needed to reproduce.
+Peer_to_Peer_Group_Key_Agreement/
+docs/
